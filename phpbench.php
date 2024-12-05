@@ -56,7 +56,7 @@ printLine("PHPBENCH - PHP Benchmark tool", '', ' ',  STR_PAD_BOTH);
 //printLine(sprintf("PHP BENCHMARK SCRIPT v.%s by @DeMartis", PHPBENCH_SCRIPT_VERSION), '', ' ',  STR_PAD_BOTH);
 printSeparator();
 
-printLine('Report generated at', $now->format('d/M/Y H:i:s'));
+printLine('Report generated at', $now->format('d/M/Y H:i:s T'));
 printLine('Script version', PHPBENCH_SCRIPT_VERSION);
 
 printTitle('PHP Info');
