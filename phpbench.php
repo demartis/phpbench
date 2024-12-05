@@ -666,15 +666,12 @@ function setup_mysql() {
 }
 
 function cleanup_mysql() {
-    global $mysqli, $dbName;
+    global $mysqli, $dbName, $args;
     if ($mysqli === null) {
         return;
     }
-
-    $result = $mysqli->query("SELECT table_name FROM information_schema.tables WHERE table_schema = '$dbName'");
-    while ($row = $result->fetch_assoc()) {
-        $mysqli->query("DROP TABLE IF EXISTS `$dbName`.`{$row['table_name']}`");
-    }
+    $table_test_name = $args['mysql_table'];
+    $mysqli->query("DROP TABLE IF EXISTS `$dbName`.`$table_test_name`");
     $mysqli->close();
 };
 
