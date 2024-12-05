@@ -50,7 +50,6 @@ $mysqli = null;
 $dbName = null;
 
 
-
 echo $isCli ? '' : '<pre>';
 printSeparator();
 printLine("PHPBENCH - PHP Benchmark tool", '', ' ',  STR_PAD_BOTH);
@@ -99,7 +98,6 @@ if($mysql_enabled){
 printSeparator();
 
 // run benchmarks
-
 $stopwatch = new StopWatch();
 foreach ($benchmarks as $type => $tests) {
 
@@ -177,6 +175,7 @@ class StopWatch
 }
 
 // functions
+
 function runBenchmark($stopwatch, $benchmark, $multiplier = 1)
 {
     $r = null;
@@ -267,6 +266,7 @@ function printTitle($str){
 
 // tests
 // PHP CORE benchmarks
+
 function get_benchmarks_core(){
 
     /** @var array<string, callable> */
@@ -648,16 +648,6 @@ function setup_mysql() {
     // check if database exists
     $result = $mysqli->query("SELECT schema_name FROM information_schema.schemata WHERE schema_name = '$dbName'");
 
-//    // if exists, delete all tables
-//    if ($result->num_rows > 0) {
-//        $result = $mysqli->query("SELECT table_name FROM information_schema.tables WHERE table_schema = '$dbName'");
-//        while ($row = $result->fetch_assoc()) {
-//            $mysqli->query("DROP TABLE IF EXISTS `$dbName`.`{$row['table_name']}`");
-//        }
-//    } else {
-//        $mysqli->query("CREATE DATABASE IF NOT EXISTS `$dbName`");
-//    }
-
     // check if DB exists, otherwise try to create it
     if ($result->num_rows == 0) {
         $mysqli->query("CREATE DATABASE IF NOT EXISTS `$dbName`");
@@ -688,37 +678,6 @@ function cleanup_mysql() {
     $mysqli->close();
 };
 
-//function checkConnection($mysqli) {
-//    return $mysqli === null ? INF : 1;
-//}
-//
-//function executeQueries($mysqli, $query, $count, $multiplier = 1) {
-//    if (checkConnection($mysqli) === INF) {
-//        return INF;
-//    }
-//    $count *= $multiplier;
-//    $time = StopWatch::time();
-//    for ($i = 0; $i < $count; $i++) {
-//        $mysqli->query($query($i));
-//    }
-//    extraStat('q/s', round($count / (StopWatch::time() - $time)));
-//    return $count;
-//}
-//
-//function executeWithCursor($mysqli, $query, $count, $multiplier = 1) {
-//    if (checkConnection($mysqli) === INF) {
-//        return INF;
-//    }
-//    $count *= $multiplier;
-//    for ($i = 0; $i < $count; $i++) {
-//        $result = $mysqli->query($query($i));
-//        while ($row = $result->fetch_assoc()) {
-//            // Process row if needed
-//        }
-//        $result->close();
-//    }
-//    return $count;
-//}
 
 function extraStat($unit, $value)
 {
@@ -858,6 +817,7 @@ function get_benchmarks_mysql(){
                 return INF;
             }
 
+            $data = '';
             $stmt = $mysqli->prepare("SELECT AES_ENCRYPT(?, 'key')");
             $stmt->bind_param('s', $data);
 
@@ -877,6 +837,7 @@ function get_benchmarks_mysql(){
                 return INF;
             }
 
+            $data = '';
             $stmt = $mysqli->prepare("SELECT AES_DECRYPT(?, 'key')");
             $stmt->bind_param('s', $data);
 
