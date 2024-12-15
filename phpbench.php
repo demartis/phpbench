@@ -1,43 +1,59 @@
 <?php
+/*
+ * PHPBENCH - PHP Benchmark Tool
+ *
+ * Usage:
+ * Run this script from the CLI or via a web server to benchmark various aspects
+ * of your PHP environment: core operations, I/O, random functions, and MySQL queries.
+ *
+ * Command line arguments can be passed as `--key=value`:
+ *   php phpbench.php --multiplier=2 --mysql_host=127.0.0.1 --mysql_user=root --mysql_password=secret
+ *
+ * If run via a web server, you can pass query strings like:
+ *   http://example.com/phpbench.php?multiplier=2
+ *
+ * add any of the wanted $default_args params, e.g:
+ *   http://example.com/phpbench.php?multiplier=2&mysql_host=127.0.0.1&mysql_user=root&mysql_password=secret
+ *
+ * Requirements:
+ * - PHP 5.6 or higher
+ * - Optional: A MySQL/MariaDB server and mysqli extension for MySQL benchmarks.
+ */
 
-define('PHPBENCH_SCRIPT_VERSION', "1.0");
-define('PHPBENCH_DEBUG', false);
+define('PHPBENCH_SCRIPT_VERSION', "1.1");
+define('PHPBENCH_DEBUG', true);  // set to true for more debugging data
 ini_set('display_errors', 0);
 ini_set('max_execution_time', 0);
+//ini_set('memory_limit', 128M);
 
-// remove comments to make the script communicate with MySQL with enabled SSL
-//define('DB_SSL', false );
-//define('MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL_DONT_VERIFY_SERVER_CERT);
-//** Connect with SSL ** //
-//define('MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL);
-//** SSL CERT **//
-// download in your server the certificate DigiCertGlobalRootCA.crt.pem and remove the comment
-//define('MYSQL_SSL_CERT','DigiCertGlobalRootCA.crt.pem');
+// To enable MySQL with SSL, uncomment and define as needed:
+// define('DB_SSL', false );
+// define('MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL_DONT_VERIFY_SERVER_CERT);
+// define('MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL);
+// define('MYSQL_SSL_CERT', 'DigiCertGlobalRootCA.crt.pem');
 
 if (PHP_MAJOR_VERSION < 5 || (PHP_MAJOR_VERSION === 5 && PHP_MINOR_VERSION < 6)) {
     echo 'This script requires PHP 5.6 or higher.';
     exit(1);
 }
 
-$defaultArgs = [
+// Default arguments
+$default_args = [
     // Increase the multiplier if you want to benchmark longer
-    'multiplier' => 1.0,
-
-    // default mysql args
-    'mysql_host' => '127.0.0.1',
-    'mysql_user' => null,
+    'multiplier'     => 1.0,
+    'mysql_host'     => '127.0.0.1',
+    'mysql_user'     => null,
     'mysql_password' => null,
-    'mysql_port' => 3306,
+    'mysql_port'     => 3306,
     'mysql_database' => 'phpbench',
-    'mysql_table' => '_phpbench_test_' . generateRandomString(6),
-    'mysql_socket' => null,
-
-    // default styles
-    'output_width' => 55,
+    'mysql_table'    => '_phpbench_test_' . generate_random_string(6),
+    'mysql_socket'   => null,
+    'output_width'   => 55,
 ];
 
-$args = array_merge($defaultArgs, get_args());
+$args = array_merge($default_args, get_args());
 
+// Benchmark sets
 $benchmarks = [
     'core'  => get_benchmarks_core(),
     'io'    => get_benchmarks_io(),
@@ -45,159 +61,234 @@ $benchmarks = [
     'mysql' => get_benchmarks_mysql(),
 ];
 
-$isCli = PHP_SAPI === 'cli';
-$multiplier = $args['multiplier'];
-$extraLines = [];
-$currentBenchmark = null;
-$mtime = microtime(true);
-// workaround for https://www.php.net/manual/en/datetime.createfromformat.php#128901
+// Environment and initial setup
+$is_cli             = (PHP_SAPI === 'cli');
+$multiplier         = $args['multiplier'];
+$extra_lines        = [];
+$current_benchmark  = null;
+$mtime              = microtime(true);
+
+// Workaround for DateTime fractional seconds issue
+// https://www.php.net/manual/en/datetime.createfromformat.php#128901
+
 if (fmod($mtime, 1) === .0000) {
     $mtime += .0001;
 }
 $now = DateTime::createFromFormat('U.u', $mtime);
 
-// mysql params
-$initialRowCount = 1000;
-$mysqli = null;
-$dbName = null;
+// MySQL parameters
+$initial_row_count = 1000;
+$mysqli            = null;
+$db_name           = null;
 
+// Output header
+echo $is_cli ? '' : '<pre>';
+print_separator();
+print_line("PHPBENCH - PHP Benchmark tool", '', ' ', STR_PAD_BOTH);
+print_separator();
 
-echo $isCli ? '' : '<pre>';
-printSeparator();
-printLine("PHPBENCH - PHP Benchmark tool", '', ' ',  STR_PAD_BOTH);
-//printLine(sprintf("PHP BENCHMARK SCRIPT v.%s by @DeMartis", PHPBENCH_SCRIPT_VERSION), '', ' ',  STR_PAD_BOTH);
-printSeparator();
+// Print environment info
+print_environment_info($now);
 
-printLine('Report generated at', $now->format('d/M/Y H:i:s T'));
-printLine('Script version', PHPBENCH_SCRIPT_VERSION);
+// Print script config info
+print_title('Script config');
+print_line('Difficulty multiplier', "{$multiplier}x");
 
-printTitle('PHP Info');
-printLine('PHP', PHP_VERSION.' '. PHP_SAPI);
-printLine('Platform', PHP_OS.' '.php_uname('m'));
-if ($isCli) {
-    printLine('Server', gethostname());
-} else {
-    $name = @$_SERVER['SERVER_NAME'] ?: 'null';
-    $addr = @$_SERVER['SERVER_ADDR'] ?: 'null';
-    printLine('Server', "{$name}@{$addr}");
-}
+// Setup MySQL if possible
+$mysql_enabled = handle_mysql_setup();
 
-printLine('Max memory usage',   ini_get('memory_limit'));
-$opStatus = function_exists('opcache_get_status') ? opcache_get_status() : false;
-printLine('OPCache',            is_array($opStatus) && @$opStatus['opcache_enabled'] ? 'enabled' : 'disabled');
-printLine('OPCache JIT',        is_array($opStatus) && @$opStatus['jit']['enabled'] ? 'enabled' : 'disabled/unavailable');
-printLine('PCRE JIT',           ini_get('pcre.jit') ? 'enabled' : 'disabled');
-printLine('XDebug',             extension_loaded('xdebug') ? 'enabled' : 'disabled');
-
-
-printTitle('Script config');
-printLine('Difficulty multiplier', "{$multiplier}x");
-
-// prepare mysql
-$mysql_enabled = true;
-try {
-    setup_mysql();
-}catch (Exception $e){
-    $mysql_enabled = false;
-    if (PHPBENCH_DEBUG){
-        printLine ('Mysql Error', $e->getMessage());
-    }
-}
-printLine('Mysql',                 $mysql_enabled ? "enabled v{$mysqli -> server_info}" : 'disabled');
-if($mysql_enabled){
-    printLine('Mysql DB',          $dbName);
-}
-printSeparator();
-
-// run benchmarks
+// Run all benchmarks
 $stopwatch = new StopWatch();
-foreach ($benchmarks as $type => $tests) {
+run_all_benchmarks($benchmarks, $stopwatch, $multiplier);
 
-    //printTitle($type);
-    foreach ($tests as $name => $test) {
-       $currentBenchmark = $name;
-       $time = runBenchmark($stopwatch, $test, $multiplier);
-       printLine("$type::$name", $time);
-
-    }
-}
-
-// cleanup
-if($mysql_enabled) {
-
-    if (!empty($extraLines)) {
-        printLine('Mysql query speeds', '', '-', STR_PAD_BOTH);
-        foreach ($extraLines as $line) {
-            printLine($line[0], $line[1]);
-        }
-    }
+// Cleanup MySQL if enabled
+if ($mysql_enabled) {
+    print_mysql_query_speeds($extra_lines);
     cleanup_mysql();
 }
 
-printSeparator();
-printLine('Total time', number_format($stopwatch->totalTime, 4) . ' s');
-printLine('Peak memory usage', round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MiB');
-
-printSeparator();
-
-printLine('Thanks for using this script','',' ');
-printLine('@author: Riccardo De Martis <riccardo@demartis.it>','',' ');
-printLine('@link  : https://github.com/demartis/phpbench','',' ');
-echo $isCli ? '' : '</pre>';
+// Print final stats and close
+print_final_stats($stopwatch);
+echo $is_cli ? '' : '</pre>';
 
 
-// classes
+/**
+ * Print environment info such as date, PHP version, server info, and extensions.
+ *
+ * @param DateTime $now Current time object
+ * @return void
+ */
+function print_environment_info($now)
+{
+    print_line('Report generated at', $now->format('d/M/Y H:i:s T'));
+    print_line('Script version', PHPBENCH_SCRIPT_VERSION);
+
+    print_title('PHP Info');
+    print_line('PHP', PHP_VERSION . ' ' . PHP_SAPI);
+    print_line('Platform', PHP_OS . ' ' . php_uname('m'));
+
+    if (PHP_SAPI === 'cli') {
+        print_line('Server', gethostname());
+    } else {
+        $name = @$_SERVER['SERVER_NAME'] ?: 'null';
+        $addr = @$_SERVER['SERVER_ADDR'] ?: 'null';
+        print_line('Server', "{$name}@{$addr}");
+    }
+
+    print_line('Max memory usage', ini_get('memory_limit'));
+
+    $op_status = function_exists('opcache_get_status') ? opcache_get_status() : false;
+    print_line('OPCache', is_array($op_status) && @$op_status['opcache_enabled'] ? 'enabled' : 'disabled');
+    print_line('OPCache JIT', is_array($op_status) && @$op_status['jit']['enabled'] ? 'enabled' : 'disabled/unavailable');
+    print_line('PCRE JIT', ini_get('pcre.jit') ? 'enabled' : 'disabled');
+    print_line('XDebug', extension_loaded('xdebug') ? 'enabled' : 'disabled');
+}
+
+
+/**
+ * Try to setup MySQL connection and environment if possible.
+ *
+ * @return bool Whether MySQL is enabled or not
+ */
+function handle_mysql_setup()
+{
+    global $mysqli, $db_name, $args;
+
+    $mysql_enabled = true;
+    try {
+        setup_mysql();
+    } catch (Exception $e) {
+        $mysql_enabled = false;
+        if (PHPBENCH_DEBUG) {
+            print_line('Mysql Error', $e->getMessage());
+        }
+    }
+
+    print_line('Mysql', $mysql_enabled ? "enabled v{$mysqli->server_info}" : 'disabled');
+    if ($mysql_enabled) {
+        print_line('Mysql DB', $db_name);
+    }
+    print_separator();
+
+    return $mysql_enabled;
+}
+
+/**
+ * Run all benchmarks in each category using a stopwatch to measure times.
+ *
+ * @param array     $benchmarks The benchmarks array
+ * @param StopWatch $stopwatch  The stopwatch object
+ * @param float     $multiplier The multiplier for difficulty
+ * @return void
+ */
+function run_all_benchmarks($benchmarks, $stopwatch, $multiplier)
+{
+    global $current_benchmark;
+    foreach ($benchmarks as $type => $tests) {
+        foreach ($tests as $name => $test) {
+            $current_benchmark = $name;
+            $time = run_benchmark($stopwatch, $test, $multiplier);
+            print_line("$type::$name", $time);
+        }
+    }
+}
+
+/**
+ * Print MySQL query speed results if any.
+ *
+ * @param array $extra_lines Additional lines collected during benchmarks
+ * @return void
+ */
+function print_mysql_query_speeds($extra_lines)
+{
+    if (!empty($extra_lines)) {
+        print_line('Mysql query speeds', '', '-', STR_PAD_BOTH);
+        foreach ($extra_lines as $line) {
+            print_line($line[0], $line[1]);
+        }
+    }
+}
+
+/**
+ * Print final stats such as total execution time and peak memory usage.
+ *
+ * @param StopWatch $stopwatch The stopwatch to read total time from
+ * @return void
+ */
+function print_final_stats($stopwatch)
+{
+    print_separator();
+    print_line('Total time', number_format($stopwatch->total_time, 4) . ' s');
+    print_line('Peak memory usage', round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MiB');
+    print_separator();
+    print_line('Thanks for using this script', '', ' ');
+    print_line('@author: Riccardo De Martis <riccardo@demartis.it>', '', ' ');
+    print_line('@link  : https://github.com/demartis/phpbench', '', ' ');
+}
+
+
+//------------------------------------
+// Classes
+//------------------------------------
 
 class StopWatch
 {
-    /**
-     * @var float
-     */
-    public $totalTime = .0;
-
-    private $start;
-
+    public $total_time = 0.0;
+    private $start_time;
 
     /**
+     * Start the timer and return start time.
      * @return float
      */
-    public function start()
+    public function start_timer()
     {
-        return $this->start = self::time();
+        return $this->start_time = self::get_time();
     }
 
     /**
+     * Stop the timer and return elapsed time.
      * @return float
      */
-    public function stop()
+    public function stop_timer()
     {
-        $time = self::time() - $this->start;
-        $this->totalTime += $time;
-
+        $time = self::get_time() - $this->start_time;
+        $this->total_time += $time;
         return $time;
     }
 
     /**
+     * Get current high resolution time.
      * @return float
      */
-    public static function time()
+    public static function get_time()
     {
         return function_exists('hrtime') ? hrtime(true) / 1e9 : microtime(true);
     }
 }
 
-// functions
 
-function runBenchmark($stopwatch, $benchmark, $multiplier = 1)
+//------------------------------------
+// Core Functions
+//------------------------------------
+
+/**
+ * Run a single benchmark with timing from the stopwatch.
+ *
+ * @param StopWatch $stopwatch
+ * @param callable  $benchmark
+ * @param float     $multiplier
+ * @return string   The formatted benchmark result or an error
+ */
+function run_benchmark($stopwatch, $benchmark, $multiplier = 1)
 {
     $r = null;
     try {
-        $stopwatch->start();
+        $stopwatch->start_timer();
         $r = $benchmark($multiplier);
     } catch (Exception $e) {
         return 'ERROR: ' . $e->getMessage();
     } finally {
-        $time = $stopwatch->stop();
+        $time = $stopwatch->stop_timer();
     }
 
     if ($r === INF) {
@@ -207,42 +298,47 @@ function runBenchmark($stopwatch, $benchmark, $multiplier = 1)
     return number_format($time, 4) . ' s';
 }
 
-
-function generateRandomString($length = 10) {
-    return substr(str_shuffle(str_repeat($x='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', ceil($length/strlen($x)) )),1,$length);
+/**
+ * Generate a random string, used for table naming etc.
+ *
+ * @param int $length
+ * @return string
+ */
+function generate_random_string($length = 10)
+{
+    return substr(str_shuffle(str_repeat($x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', ceil($length / strlen($x)))), 1, $length);
 }
 
+/**
+ * Retrieve arguments from CLI or server environment.
+ *
+ * @return array
+ */
 function get_args()
 {
     $args = [];
 
     if (PHP_SAPI === 'cli') {
-        $cleanedArgs = array_map(function ($arg) {
+        $cleaned_args = array_map(function ($arg) {
             return strpos($arg, '--') !== 0 ? null : str_replace('--', '', $arg);
         }, $GLOBALS['argv']);
-
-        parse_str(implode('&', array_filter($cleanedArgs)), $args);
+        parse_str(implode('&', array_filter($cleaned_args)), $args);
     } else {
-
-        $args = [];
-        // check if there are any DB config as Wordpress server env style
+        // Attempt DB config from environment variables
         foreach ($_SERVER as $key => $value) {
             if (strpos($key, "MYSQLCONNSTR_") !== 0) {
                 continue;
             }
-
             $args['mysql_host']     = preg_replace("/^.*Data Source=(.+?);.*$/", "\\1", $value);
             $args['mysql_database'] = preg_replace("/^.*Database=(.+?);.*$/", "\\1", $value);
             $args['mysql_user']     = preg_replace("/^.*User Id=(.+?);.*$/", "\\1", $value);
             $args['mysql_password'] = preg_replace("/^.*Password=(.+?)$/", "\\1", $value);
         }
 
-        // any further Query string will override them
-        if($_SERVER['QUERY_STRING']){
-
+        // Query strings override env settings
+        if ($_SERVER['QUERY_STRING']) {
             $query_args = [];
             parse_str($_SERVER['QUERY_STRING'], $query_args);
-
             $args = array_merge($args, $query_args);
         }
     }
@@ -250,43 +346,67 @@ function get_args()
     return $args;
 }
 
-// ui tools
 
-function printLine($str, $endStr = '', $pad = '.', $mode = STR_PAD_RIGHT)
+//------------------------------------
+// UI Tools
+//------------------------------------
+
+/**
+ * Print a line padded according to the given width.
+ *
+ * @param string $str
+ * @param string $end_str
+ * @param string $pad
+ * @param int    $mode
+ * @return void
+ */
+function print_line($str, $end_str = '', $pad = '.', $mode = STR_PAD_RIGHT)
 {
     global $args;
-    $lineWidth = $args['output_width'];
+    $line_width = $args['output_width'];
+    $lf = PHP_SAPI === 'cli' ? PHP_EOL : '<br/>';
 
-    $LF = PHP_SAPI === 'cli' ? PHP_EOL : '<br/>';
-
-    if (!empty($endStr)) {
-        $endStr = " $endStr";
+    if (!empty($end_str)) {
+        $end_str = " $end_str";
     }
-    $length = max(0, $lineWidth - strlen($endStr));
-    echo str_pad($str, $length, $pad, $mode) . $endStr . $LF;
+    $length = max(0, $line_width - strlen($end_str));
+    echo str_pad($str, $length, $pad, $mode) . $end_str . $lf;
+}
+
+/**
+ * Print a separator line.
+ *
+ * @return void
+ */
+function print_separator()
+{
+    print_line('', '', '-');
+}
+
+/**
+ * Print a title line.
+ *
+ * @param string $str
+ * @return void
+ */
+function print_title($str)
+{
+    print_line(' ' . $str . ' ', '', '-', STR_PAD_BOTH);
 }
 
 
-function printSeparator(){
-    printLine('', '', '-');
-}
+//------------------------------------
+// Benchmarks: Core, IO, Rand, MySQL
+//------------------------------------
 
-function printTitle($str){
-
-    printLine(' '.$str.' ', '', '-', STR_PAD_BOTH);
-}
-
-// tests
-// PHP CORE benchmarks
-
-function get_benchmarks_core(){
-
-    /** @var array<string, callable> */
+function get_benchmarks_core()
+{
     return [
         'math' => function ($multiplier = 1, $count = 200000) {
             $x = 0;
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
+                // Perform various math and function calls to stress CPU
                 $x += $i + $i;
                 $x += $i * $i;
                 $x += $i ** $i;
@@ -327,12 +447,12 @@ function get_benchmarks_core(){
                 tan($i);
                 tanh($i);
             }
-
             return $i;
         },
         'loops' => function ($multiplier = 1, $count = 20000000) {
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; ++$i) {
+                // Simple for loop
                 $i;
             }
             $i = 0;
@@ -342,8 +462,7 @@ function get_benchmarks_core(){
             return $i;
         },
         'ifelse' => function ($multiplier = 1, $count = 10000000) {
-            $a = 0;
-            $b = 0;
+            $a = 0; $b = 0;
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 $k = $i % 4;
@@ -360,8 +479,7 @@ function get_benchmarks_core(){
             return $a - $b;
         },
         'switch' => function ($multiplier = 1, $count = 10000000) {
-            $a = 0;
-            $b = 0;
+            $a = 0; $b = 0;
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 switch ($i % 4) {
@@ -384,6 +502,7 @@ function get_benchmarks_core(){
             $string = '<i>the</i> quick brown fox jumps over the lazy dog  ';
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
+                // Various string functions
                 addslashes($string);
                 bin2hex($string);
                 chunk_split($string);
@@ -421,13 +540,12 @@ function get_benchmarks_core(){
             $a = range(0, 100);
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
+                // Array manipulation
                 array_keys($a);
                 array_values($a);
                 array_flip($a);
-                array_map(function ($e) {
-                }, $a);
-                array_walk($a, function ($e, $i) {
-                });
+                array_map(function ($e) {}, $a);
+                array_walk($a, function ($e, $i) {});
                 array_reverse($a);
                 array_sum($a);
                 array_merge($a, [101, 102, 103]);
@@ -438,10 +556,8 @@ function get_benchmarks_core(){
         },
         'regex' => function ($multiplier = 1, $count = 1000000) {
             for ($i = 0; $i < $count * $multiplier; $i++) {
-                preg_match("#http[s]?://\w+[^\s\[\]\<]+#",
-                    'this is a link to https://google.com which is a really popular site');
-                preg_replace("#(^|\s)(http[s]?://\w+[^\s\[\]\<]+)#i", '\1<a href="\2">\2</a>',
-                    'this is a link to https://google.com which is a really popular site');
+                preg_match("#http[s]?://\w+[^\s\[\]\<]+#", 'this is a link to https://google.com');
+                preg_replace("#(^|\s)(http[s]?://\w+[^\s\[\]\<]+)#i", '\1<a href="\2">\2</a>', 'this is a link to https://google.com');
             }
             return $i;
         },
@@ -449,6 +565,7 @@ function get_benchmarks_core(){
             $o = new stdClass();
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
+                // Type checks
                 is_array([1]);
                 is_array('1');
                 is_int(1);
@@ -469,6 +586,7 @@ function get_benchmarks_core(){
         'hash' => function ($multiplier = 1, $count = 10000) {
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
+                // Hashing functions
                 md5($i);
                 sha1($i);
                 hash('sha256', $i);
@@ -500,19 +618,19 @@ function get_benchmarks_core(){
         },
         'json' => function ($multiplier = 1, $count = 100000) {
             $data = [
-                'foo' => 'bar',
-                'bar' => 'baz',
-                'baz' => 'qux',
-                'qux' => 'quux',
-                'quux' => 'corge',
+                'foo'   => 'bar',
+                'bar'   => 'baz',
+                'baz'   => 'qux',
+                'qux'   => 'quux',
+                'quux'  => 'corge',
                 'corge' => 'grault',
-                'grault' => 'garply',
-                'garply' => 'waldo',
+                'grault'=> 'garply',
+                'garply'=> 'waldo',
                 'waldo' => 'fred',
-                'fred' => 'plugh',
+                'fred'  => 'plugh',
                 'plugh' => 'xyzzy',
                 'xyzzy' => 'thud',
-                'thud' => 'end',
+                'thud'  => 'end',
             ];
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
@@ -522,15 +640,12 @@ function get_benchmarks_core(){
             return $data;
         },
     ];
-    return $benchmarks;
 }
 
-// IO
-function get_benchmarks_io(){
-
-    /** @var array<string, callable> */
+function get_benchmarks_io()
+{
     return [
-        'file_read' => function($multiplier = 1, $count = 1000) {
+        'file_read' => function ($multiplier = 1, $count = 1000) {
             file_put_contents('test.txt', "test");
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
@@ -539,7 +654,7 @@ function get_benchmarks_io(){
             unlink('test.txt');
             return $i;
         },
-        'file_write' => function($multiplier = 1, $count = 1000) {
+        'file_write' => function ($multiplier = 1, $count = 1000) {
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 file_put_contents('test.txt', "test $i");
@@ -547,7 +662,7 @@ function get_benchmarks_io(){
             unlink('test.txt');
             return $i;
         },
-        'file_zip' => function($multiplier = 1, $count = 1000) {
+        'file_zip' => function ($multiplier = 1, $count = 1000) {
             file_put_contents('test.txt', "test");
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
@@ -560,7 +675,7 @@ function get_benchmarks_io(){
             unlink('test.zip');
             return $i;
         },
-        'file_unzip' => function($multiplier = 1, $count = 1000) {
+        'file_unzip' => function ($multiplier = 1, $count = 1000) {
             file_put_contents('test.txt', "test");
             $zip = new ZipArchive();
             $zip->open('test.zip', ZipArchive::CREATE);
@@ -579,56 +694,50 @@ function get_benchmarks_io(){
             rmdir('test');
             return $i;
         },
-
     ];
 }
 
-// rand
-function get_benchmarks_rand(){
-
-    /** @var array<string, callable> */
+function get_benchmarks_rand()
+{
     return [
-        'rand' => function($multiplier = 1, $count = 1000000) {
+        'rand' => function ($multiplier = 1, $count = 1000000) {
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 rand(0, $i);
             }
             return $i;
         },
-        'mt_rand' => function($multiplier = 1, $count = 1000000) {
+        'mt_rand' => function ($multiplier = 1, $count = 1000000) {
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 mt_rand(0, $i);
             }
             return $i;
         },
-        'random_int' => function($multiplier = 1, $count = 1000000) {
+        'random_int' => function ($multiplier = 1, $count = 1000000) {
             if (!function_exists('random_int')) {
                 return INF;
             }
-
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 random_int(0, $i);
             }
             return $i;
         },
-        'random_bytes' => function($multiplier = 1, $count = 1000000) {
+        'random_bytes' => function ($multiplier = 1, $count = 1000000) {
             if (!function_exists('random_bytes')) {
                 return INF;
             }
-
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 random_bytes(32);
             }
             return $i;
         },
-        'openssl_random_pseudo_bytes' => function($multiplier = 1, $count = 1000000) {
+        'openssl_random_pseudo_bytes' => function ($multiplier = 1, $count = 1000000) {
             if (!function_exists('openssl_random_pseudo_bytes')) {
                 return INF;
             }
-
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 openssl_random_pseudo_bytes(32);
@@ -638,149 +747,158 @@ function get_benchmarks_rand(){
     ];
 }
 
-// mysql
-function setup_mysql() {
-    global $args, $mysqli, $initialRowCount, $dbName;
+
+//------------------------------------
+// MySQL Setup and Cleanup
+//------------------------------------
+
+function setup_mysql()
+{
+    global $args, $mysqli, $initial_row_count, $db_name;
 
     $table_test_name = $args['mysql_table'];
-    if (!extension_loaded('mysqli'))
+    if (!extension_loaded('mysqli')) {
         throw new RuntimeException('The mysqli extension is not loaded');
+    }
 
-    if ($args['mysql_host'] === null || $args['mysql_user'] === null || $args['mysql_password'] === null)
+    if ($args['mysql_host'] === null || $args['mysql_user'] === null || $args['mysql_password'] === null) {
         throw new RuntimeException('Missing: mysql_host, mysql_user, mysql_password');
+    }
 
-
-    $client_flags = defined( 'MYSQL_CLIENT_FLAGS' ) ? MYSQL_CLIENT_FLAGS : 0;
+    $client_flags = defined('MYSQL_CLIENT_FLAGS') ? MYSQL_CLIENT_FLAGS : 0;
 
     $mysqli = mysqli_init();
-    if ( PHPBENCH_DEBUG ) {
-        mysqli_real_connect( $mysqli, $args['mysql_host'], $args['mysql_user'], $args['mysql_password'],
-            null, $args['mysql_port'], $args['mysql_socket'], $client_flags );
+    if (PHPBENCH_DEBUG) {
+        mysqli_real_connect($mysqli, $args['mysql_host'], $args['mysql_user'], $args['mysql_password'],
+            null, $args['mysql_port'], $args['mysql_socket'], $client_flags);
     } else {
-        @mysqli_real_connect( $mysqli, $args['mysql_host'], $args['mysql_user'], $args['mysql_password'],
-            null, $args['mysql_port'], $args['mysql_socket'], $client_flags );
+        @mysqli_real_connect($mysqli, $args['mysql_host'], $args['mysql_user'], $args['mysql_password'],
+            null, $args['mysql_port'], $args['mysql_socket'], $client_flags);
     }
 
-
-//    $mysqli = new mysqli($args['mysql_host'], $args['mysql_user'], $args['mysql_password'], null,
-//        isset($args['mysql_port']) ? $args['mysql_port'] : 3306);
-
-    if ($mysqli->connect_error)
+    if ($mysqli->connect_error) {
         throw new RuntimeException("Mysql Connect Error ({$mysqli->connect_errno}) {$mysqli->connect_error}");
-
-    $dbName = isset($args['mysql_database']) ? $args['mysql_database'] : 'phpbench_test';
-
-    // check if database exists
-    $result = $mysqli->query("SELECT schema_name FROM information_schema.schemata WHERE schema_name = '$dbName'");
-
-    // check if DB exists, otherwise try to create it
-    if ($result->num_rows == 0) {
-        $mysqli->query("CREATE DATABASE IF NOT EXISTS `$dbName`");
     }
 
-    $mysqli->select_db($dbName);
-    $mysqli->query("CREATE TABLE IF NOT EXISTS `$dbName`.`$table_test_name` (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255))");
+    $db_name = isset($args['mysql_database']) ? $args['mysql_database'] : 'phpbench_test';
 
-    for ($i = 0; $i < $initialRowCount; $i++) {
+    // Check if database exists
+    $result = $mysqli->query("SELECT schema_name FROM information_schema.schemata WHERE schema_name = '$db_name'");
+    if ($result->num_rows == 0) {
+        $mysqli->query("CREATE DATABASE IF NOT EXISTS `$db_name`");
+    }
+
+    $mysqli->select_db($db_name);
+    $mysqli->query("CREATE TABLE IF NOT EXISTS `$db_name`.`$table_test_name` (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255))");
+
+    $values = [];
+    for ($i = 0; $i < $initial_row_count; $i++) {
         $values[] = "('test$i')";
     }
-    $r = $mysqli->query("INSERT INTO `$dbName`.`$table_test_name` (name) VALUES " . implode(',', $values));
+    $r = $mysqli->query("INSERT INTO `$db_name`.`$table_test_name` (name) VALUES " . implode(',', $values));
     if (!$r) {
-        throw new RuntimeException("Mysql Error ({$mysqli->errno}) {$mysqli->error}" );
+        throw new RuntimeException("Mysql Error ({$mysqli->errno}) {$mysqli->error}");
     }
 }
 
-function cleanup_mysql() {
-    global $mysqli, $dbName, $args;
+function cleanup_mysql()
+{
+    global $mysqli, $db_name, $args;
     if ($mysqli === null) {
         return;
     }
     $table_test_name = $args['mysql_table'];
-    $mysqli->query("DROP TABLE IF EXISTS `$dbName`.`$table_test_name`");
+    $mysqli->query("DROP TABLE IF EXISTS `$db_name`.`$table_test_name`");
     $mysqli->close();
-};
-
-
-function extraStat($unit, $value)
-{
-    global $extraLines, $currentBenchmark;
-    $extraLines[] = [$currentBenchmark, "$value $unit"];
 }
 
+function extra_stat($unit, $value)
+{
+    global $extra_lines, $current_benchmark;
+    $extra_lines[] = [$current_benchmark, "$value $unit"];
+}
 
-function get_benchmarks_mysql(){
+/**
+ * Helper function to run a MySQL benchmark that repeats an action $count times,
+ * measures the time, and reports q/s or another metric.
+ *
+ * @param int      $multiplier Multiplying factor for iteration count
+ * @param int      $count      Base count of operations
+ * @param callable $callback   Function to run in each iteration
+ * @param string   $stat_unit  Unit for extra_stat
+ * @return int     Last iteration count
+ */
+function run_mysql_iterations($multiplier, $count, $callback, $stat_unit = 'q/s')
+{
+    $count = $count * $multiplier;
+    $time = StopWatch::get_time();
+    for ($i = 0; $i < $count; $i++) {
+        $callback($i);
+    }
+    extra_stat($stat_unit, round($count / (StopWatch::get_time() - $time)));
+    return $i;
+}
+
+function get_benchmarks_mysql()
+{
     global $args, $mysqli;
-    $table_test_name= $args['mysql_table'];
+    $table_test_name = $args['mysql_table'];
 
-    /** @var array<string, callable> */
     return [
-        'ping' => function () use (&$mysqli, $table_test_name) {
+        'ping' => function () use (&$mysqli) {
             if ($mysqli === null) {
                 return INF;
             }
             $mysqli->ping();
             return 1;
         },
-        'select_version' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
+
+        'select_version' => function ($multiplier = 1, $count = 1000) use (&$mysqli) {
             if ($mysqli === null) {
                 return INF;
             }
-
-            $count = $count * $multiplier;
-            $time = StopWatch::time();
-            for ($i = 0; $i < $count; $i++) {
+            return run_mysql_iterations($multiplier, $count, function() use ($mysqli) {
                 $mysqli->query("SELECT VERSION()");
-            }
-
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
-
-            return $i;
+            }, 'q/s');
         },
+
         'select_all' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
-            $count = $count * $multiplier;
-            $time = StopWatch::time();
-            for ($i = 0; $i < $count; $i++) {
+            return run_mysql_iterations($multiplier, $count, function() use ($mysqli, $table_test_name) {
                 $mysqli->query("SELECT * FROM `$table_test_name`");
-            }
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
-            return $i;
+            }, 'q/s');
         },
+
         'select_cursor' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
             $count = $count * $multiplier;
             for ($i = 0; $i < $count; $i++) {
                 $result = $mysqli->query("SELECT * FROM `$table_test_name`");
                 while ($row = $result->fetch_assoc()) {
+                    // reading rows
                 }
                 $result->close();
             }
             return $i;
         },
+
         'seq_insert' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
-            $count = $count * $multiplier;
-            $time = StopWatch::time();
-            for ($i = 0; $i < $count; $i++) {
+            return run_mysql_iterations($multiplier, $count, function() use ($mysqli, $table_test_name) {
                 $mysqli->query("INSERT INTO `$table_test_name` (name) VALUES ('test')");
-            }
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
-            return $i;
+            }, 'q/s');
         },
+
         'bulk_insert' => function ($multiplier = 1, $count = 100000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
             $count = $count * $multiplier;
             $values = [];
             for ($i = 0; $i < $count; $i++) {
@@ -789,113 +907,100 @@ function get_benchmarks_mysql(){
             $mysqli->query("INSERT INTO `$table_test_name` (name) VALUES " . implode(',', $values));
             return $i;
         },
+
         'update' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
-            $count = $count * $multiplier;
-            $time = StopWatch::time();
-            for ($i = 0; $i < $count; $i++) {
+            return run_mysql_iterations($multiplier, $count, function($i) use ($mysqli, $table_test_name) {
                 $mysqli->query("UPDATE `$table_test_name` SET name = 'test' WHERE id = '$i'");
-            }
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
-            return $i;
+            }, 'q/s');
         },
+
         'update_with_index' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
             $mysqli->query("CREATE INDEX idx ON `$table_test_name` (id)");
-
-            $count = $count * $multiplier;
-            $time = StopWatch::time();
-            for ($i = 0; $i < $count; $i++) {
+            $r = run_mysql_iterations($multiplier, $count, function($i) use ($mysqli, $table_test_name) {
                 $mysqli->query("UPDATE `$table_test_name` SET name = 'test' WHERE id = '$i'");
-            }
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
-
+            }, 'q/s');
             $mysqli->query("DROP INDEX idx ON `$table_test_name`");
-            return $i;
+            return $r;
         },
+
         'transaction_insert' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
             $count = $count * $multiplier;
-            $time = StopWatch::time();
+            $time = StopWatch::get_time();
             for ($i = 0; $i < $count; $i++) {
                 $mysqli->begin_transaction();
                 $mysqli->query("INSERT INTO `$table_test_name` (name) VALUES ('test')");
                 $mysqli->commit();
             }
-            extraStat('t/s', round($count / (StopWatch::time() - $time)));
+            extra_stat('t/s', round($count / (StopWatch::get_time() - $time)));
             return $i;
         },
-        'aes_encrypt' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
+
+        'aes_encrypt' => function ($multiplier = 1, $count = 1000) use (&$mysqli) {
             if ($mysqli === null) {
                 return INF;
             }
-
             $data = '';
             $stmt = $mysqli->prepare("SELECT AES_ENCRYPT(?, 'key')");
             $stmt->bind_param('s', $data);
-
             $data = str_repeat('a', 16);
+
             $count = $count * $multiplier;
-            $time = StopWatch::time();
+            $time = StopWatch::get_time();
             for ($i = 0; $i < $count; $i++) {
                 $stmt->execute();
                 $stmt->get_result()->fetch_assoc();
             }
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
+            extra_stat('q/s', round($count / (StopWatch::get_time() - $time)));
             $stmt->close();
             return $i;
         },
-        'aes_decrypt' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
+
+        'aes_decrypt' => function ($multiplier = 1, $count = 1000) use (&$mysqli) {
             if ($mysqli === null) {
                 return INF;
             }
-
             $data = '';
             $stmt = $mysqli->prepare("SELECT AES_DECRYPT(?, 'key')");
             $stmt->bind_param('s', $data);
-
             $data = str_repeat('a', 16);
+
             $count = $count * $multiplier;
-            $time = StopWatch::time();
+            $time = StopWatch::get_time();
             for ($i = 0; $i < $count; $i++) {
                 $stmt->execute();
                 $stmt->get_result()->fetch_assoc();
             }
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
+            extra_stat('q/s', round($count / (StopWatch::get_time() - $time)));
             $stmt->close();
             return $i;
         },
+
         'indexes' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
+            // Just create and drop an index, no timing or q/s reporting here as it's a single operation
             $mysqli->query("CREATE INDEX idx_name ON `$table_test_name` (name)");
             $mysqli->query("DROP INDEX idx_name ON `$table_test_name`");
             return 1;
         },
+
         'delete' => function ($multiplier = 1, $count = 1000) use (&$mysqli, $table_test_name) {
             if ($mysqli === null) {
                 return INF;
             }
-
-            $count = $count * $multiplier;
-            $time = StopWatch::time();
-            for ($i = 0; $i < $count; $i++) {
+            return run_mysql_iterations($multiplier, $count, function($i) use ($mysqli, $table_test_name) {
                 $mysqli->query("DELETE FROM `$table_test_name` WHERE id = '$i'");
-            }
-            extraStat('q/s', round($count / (StopWatch::time() - $time)));
-            return $i;
+            }, 'q/s');
         },
     ];
 }
-
