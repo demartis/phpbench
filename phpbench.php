@@ -5,6 +5,15 @@ define('PHPBENCH_DEBUG', false);
 ini_set('display_errors', 0);
 ini_set('max_execution_time', 0);
 
+// remove comments to make the script communicate with MySQL with enabled SSL
+//define('DB_SSL', false );
+//define('MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL_DONT_VERIFY_SERVER_CERT);
+//** Connect with SSL ** //
+//define('MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL);
+//** SSL CERT **//
+// download in your server the certificate DigiCertGlobalRootCA.crt.pem and remove the comment
+//define('MYSQL_SSL_CERT','DigiCertGlobalRootCA.crt.pem');
+
 if (PHP_MAJOR_VERSION < 5 || (PHP_MAJOR_VERSION === 5 && PHP_MINOR_VERSION < 6)) {
     echo 'This script requires PHP 5.6 or higher.';
     exit(1);
@@ -640,6 +649,8 @@ function setup_mysql() {
     if ($args['mysql_host'] === null || $args['mysql_user'] === null || $args['mysql_password'] === null)
         throw new RuntimeException('Missing: mysql_host, mysql_user, mysql_password');
 
+
+    $client_flags = defined( 'MYSQL_CLIENT_FLAGS' ) ? MYSQL_CLIENT_FLAGS : 0;
 
     $mysqli = mysqli_init();
     if ( PHPBENCH_DEBUG ) {
