@@ -2,6 +2,8 @@
 
 define('PHPBENCH_SCRIPT_VERSION', "1.0");
 define('PHPBENCH_DEBUG', false);
+ini_set('display_errors', 0);
+ini_set('max_execution_time', 0);
 
 if (PHP_MAJOR_VERSION < 5 || (PHP_MAJOR_VERSION === 5 && PHP_MINOR_VERSION < 6)) {
     echo 'This script requires PHP 5.6 or higher.';
