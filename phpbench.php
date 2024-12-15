@@ -1,7 +1,7 @@
 <?php
 
 define('PHPBENCH_SCRIPT_VERSION', "1.0");
-define('PHPBENCH_DEBUG', true);
+define('PHPBENCH_DEBUG', false);
 
 if (PHP_MAJOR_VERSION < 5 || (PHP_MAJOR_VERSION === 5 && PHP_MINOR_VERSION < 6)) {
     echo 'This script requires PHP 5.6 or higher.';
@@ -19,6 +19,7 @@ $defaultArgs = [
     'mysql_port' => 3306,
     'mysql_database' => 'phpbench',
     'mysql_table' => '_phpbench_test_' . generateRandomString(6),
+    'mysql_socket' => null,
 
     // default styles
     'output_width' => 55,
@@ -637,8 +638,19 @@ function setup_mysql() {
     if ($args['mysql_host'] === null || $args['mysql_user'] === null || $args['mysql_password'] === null)
         throw new RuntimeException('Missing: mysql_host, mysql_user, mysql_password');
 
-    $mysqli = new mysqli($args['mysql_host'], $args['mysql_user'], $args['mysql_password'], null,
-        isset($args['mysql_port']) ? $args['mysql_port'] : 3306);
+
+    $mysqli = mysqli_init();
+    if ( PHPBENCH_DEBUG ) {
+        mysqli_real_connect( $mysqli, $args['mysql_host'], $args['mysql_user'], $args['mysql_password'],
+            null, $args['mysql_port'], $args['mysql_socket'], $client_flags );
+    } else {
+        @mysqli_real_connect( $mysqli, $args['mysql_host'], $args['mysql_user'], $args['mysql_password'],
+            null, $args['mysql_port'], $args['mysql_socket'], $client_flags );
+    }
+
+
+//    $mysqli = new mysqli($args['mysql_host'], $args['mysql_user'], $args['mysql_password'], null,
+//        isset($args['mysql_port']) ? $args['mysql_port'] : 3306);
 
     if ($mysqli->connect_error)
         throw new RuntimeException("Mysql Connect Error ({$mysqli->connect_errno}) {$mysqli->connect_error}");
