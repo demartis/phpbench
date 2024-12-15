@@ -1,15 +1,19 @@
 # PHPBench - A Single-File PHP Benchmarking Script
 
-**Author:** Riccardo De Martis (<riccado@demartis.it>)  
-**GitHub:** [https://github.com/demartis/phpbench](https://github.com/demartis/phpbench)
+[![PHP Version](https://img.shields.io/badge/PHP-%5E5.6-blue.svg)](https://www.php.net/)
+[![License](https://img.shields.io/badge/license-LGPL-green.svg)](https://opensource.org/licenses/LGPL-3.0)
+[![Code Quality](https://img.shields.io/scrutinizer/g/demartis/phpbench/main.svg)](https://scrutinizer-ci.com/g/demartis/phpbench/)
+[![Issues](https://img.shields.io/github/issues/demartis/phpbench.svg)](https://github.com/demartis/phpbench/issues)
+[![Forks](https://img.shields.io/github/forks/demartis/phpbench.svg)](https://github.com/demartis/phpbench/network/members)
+[![Stars](https://img.shields.io/github/stars/demartis/phpbench.svg?style=social)](https://github.com/demartis/phpbench/stargazers)
 
 ## Introduction
 
 PHPBench is a single-file PHP benchmarking tool that helps you measure various aspects of your PHP environment's performance, including core PHP operations, I/O operations, randomness generation, and MySQL query handling.
 
 **Inspired by:**  
-[PHP Benchmark Script](https://github.com/demartis/php-benchmark-script)  
-While the original project provided a great starting point, I found that having a single self-contained PHP file is often more convenient. Deploying one file simplifies the process of benchmarking different servers, especially when you have limited access, making maintenance and distribution much easier.
+[PHP Benchmark Script](https://github.com/sergix44/php-benchmark-script)  
+While the original project provided a great starting point, I found that having **a single self-contained PHP file is often more convenient**. Deploying one file simplifies the process of benchmarking different servers, especially when you have limited access, making maintenance and distribution much easier.
 
 ## Features
 
@@ -27,13 +31,24 @@ While the original project provided a great starting point, I found that having 
 ## How to Run
 
 1. **Command line (CLI):**
+   From your SSH:
+   ```bash
+   curl https://raw.githubusercontent.com/demartis/phpbench/main/phpbench.php | php
+   ```
+   You can pass arguments as `--key=value`. For example, adjust the `multiplier` to make the tests run longer or point to a different MySQL server.
+   Don't forget the double `--` when running with the pipe, eg: `php -- --multiplier=2 ` :
+   ```bash
+    curl https://raw.githubusercontent.com/demartis/phpbench/main/phpbench.php | php -- --multiplier=2 
+   ``` 
+
+   or locally:
    ```bash
    php phpbench.php --multiplier=2 --mysql_host=127.0.0.1 --mysql_user=root --mysql_password=secret
    ```
    
-   You can pass arguments as `--key=value`. For example, adjust the `multiplier` to make the tests run longer or point to a different MySQL server.
+  
 
-2. **Via a web server:**
+3. **Via a web server:**
    Place `phpbench.php` in a web-accessible folder and run:
    ```text
    http://yourserver/phpbench.php?multiplier=2
@@ -42,7 +57,7 @@ While the original project provided a great starting point, I found that having 
    Query string parameters will override default settings (see `$default_args params`).
    e.g:
    ```text
-    http://yourserver/phpbench.php?multiplier=2&mysql_host=127.0.0.1&mysql_user=root&mysql_password=secret
+   http://yourserver/phpbench.php?multiplier=2&mysql_host=127.0.0.1&mysql_user=root&mysql_password=secret
    ```
 
 ## Adding Custom Tests
@@ -101,3 +116,8 @@ Contributions are welcome!
 - Contact me at **riccado@demartis.it** if you have any questions or need guidance.
 
 Your input and improvements can help make PHPBench more useful for everyone.
+
+----------------------------------------------------------------------------------------
+
+**Author:** Riccardo De Martis (<riccado@demartis.it>)  
+**GitHub:** [https://github.com/demartis/phpbench](https://github.com/demartis/phpbench)
