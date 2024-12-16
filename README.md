@@ -11,8 +11,7 @@
 
 PHPBench is a single-file PHP benchmarking tool that helps you measure various aspects of your PHP environment's performance, including core PHP operations, I/O operations, randomness generation, and MySQL query handling.
 
-**Inspired by:**  
-[PHP Benchmark Script](https://github.com/sergix44/php-benchmark-script)  
+Initially inspired by [PHP Benchmark Script](https://github.com/sergix44/php-benchmark-script), this script has been completely refactored and rewritten.
 While the original project provided a great starting point, I found that having **a single self-contained PHP file is often more convenient**. Deploying one file simplifies the process of benchmarking different servers, especially when you have limited access, making maintenance and distribution much easier.
 
 ## Features
@@ -45,8 +44,6 @@ While the original project provided a great starting point, I found that having 
    ```bash
    php phpbench.php --multiplier=2 --mysql_host=127.0.0.1 --mysql_user=root --mysql_password=secret
    ```
-   
-  
 
 3. **Via a web server:**
    Place `phpbench.php` in a web-accessible folder and run:
